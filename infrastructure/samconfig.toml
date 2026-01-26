@@ -1,0 +1,27 @@
+version = 0.1
+
+[default]
+[default.global]
+[default.global.parameters]
+stack_name = "semantic-cache-demo"
+s3_prefix = "semantic-cache-demo"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_NAMED_IAM"
+parameter_overrides = [
+    "ProjectName=semantic-cache-demo",
+    "SimilarityThreshold=0.85",
+    "CacheTTL=86400"
+]
+
+[default.build]
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy]
+[default.deploy.parameters]
+capabilities = "CAPABILITY_NAMED_IAM"
+confirm_changeset = true
+fail_on_empty_changeset = false
+stack_name = "semantic-cache-demo"

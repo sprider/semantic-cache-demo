@@ -1,0 +1,90 @@
+%% Semantic Cache Architecture (S3 Vectors + Bedrock)
+%% Source: semantic_cache_architecture_updated.mmd
+%% Exported PNG/SVG: Use https://mermaid.ai/app/dashboard — paste this file, then export as PNG or SVG.
+%%{init: {'theme':'default', 'themeVariables': {'primaryColor':'#ff6b6b','primaryTextColor':'#fff','primaryBorderColor':'#7C0000','lineColor':'#F8B229','secondaryColor':'#006100','tertiaryColor':'#fff'}}}%%
+graph TB
+    subgraph Users
+        AppUsers["👥 Application Users"]
+    end
+    
+    subgraph APILayer
+        APIGateway["🌐 API Gateway<br/>(HTTP API)"]
+    end
+    
+    subgraph OrchestrationLayer
+        CacheOrch["⚡ Cache Orchestrator<br/>(Lambda Function)"]
+        Decision{"Similarity<br/>Check<br/>(≥ 0.85?)"}
+    end
+    
+    subgraph CacheLayer
+        direction TB
+        S3Vectors["💾 Amazon S3 Vectors<br/>(Serverless Vector DB)"]
+        VectorIndex["🔍 Vector Index<br/>(Cosine Similarity)"]
+        S3Vectors -.->|"Same Service"| VectorIndex
+    end
+    
+    subgraph AI_ML_Layer
+        TitanEmbed["🧠 Titan Text Embeddings V2<br/>(amazon.titan-embed-text-v2:0)<br/>1024 dimensions"]
+        ClaudeLLM["🤖 Claude Haiku 4.5<br/>(anthropic.claude-haiku-4-5-20251001-v1:0)"]
+    end
+    
+    subgraph Observability
+        CloudWatch["📊 CloudWatch Metrics<br/>(Namespace: SemanticCache)"]
+    end
+    
+    %% Flow: 1→2→3→3a→4→4a→Decision. HIT: 5a→6a→7a (response from cache). MISS: 5b→6→7→8→9 (response from LLM). 10=Metrics.
+    %% Flow Steps (1–4: request flow)
+    AppUsers -->|"1. Query"| APIGateway
+    APIGateway -->|"2. Route"| CacheOrch
+    CacheOrch -->|"3. Generate Embedding"| TitanEmbed
+    TitanEmbed -->|"3a. Embedding<br/>(1024-dim)"| CacheOrch
+    CacheOrch -->|"4. Vector Search"| VectorIndex
+    VectorIndex -->|"4a. Similarity Score"| Decision
+    Decision -->|"5a. Cache HIT<br/>(~10x faster)<br/>Similarity ≥ 0.85"| CacheOrch
+    CacheOrch -->|"6a. Cached Response"| APIGateway
+    APIGateway -->|"7a. Response<br/>(from cache)"| AppUsers
+    
+    %% Cache MISS Path (5b → 6 → 7 → 8 → 9)
+    Decision -->|"5b. Cache MISS<br/>Similarity < 0.85"| ClaudeLLM
+    ClaudeLLM -->|"6. LLM Response"| CacheOrch
+    CacheOrch -->|"7. Store in Cache"| S3Vectors
+    CacheOrch -->|"8. LLM Response"| APIGateway
+    APIGateway -->|"9. Response<br/>(from LLM)"| AppUsers
+    
+    %% Observability (10)
+    CacheOrch -.->|"10. Metrics"| CloudWatch
+    
+    %% Edge colors by flow & direction
+    linkStyle 0 stroke:#9E9E9E,stroke-width:1px,stroke-dasharray:5 5
+    linkStyle 1 stroke:#1565C0,stroke-width:2px
+    linkStyle 2 stroke:#1565C0,stroke-width:2px
+    linkStyle 3 stroke:#1565C0,stroke-width:2px
+    linkStyle 4 stroke:#2E7D32,stroke-width:2px
+    linkStyle 5 stroke:#1565C0,stroke-width:2px
+    linkStyle 6 stroke:#2E7D32,stroke-width:2px
+    linkStyle 7 stroke:#2E7D32,stroke-width:2px
+    linkStyle 8 stroke:#00838F,stroke-width:2px
+    linkStyle 9 stroke:#00838F,stroke-width:2px
+    linkStyle 10 stroke:#1565C0,stroke-width:2px
+    linkStyle 11 stroke:#2E7D32,stroke-width:2px
+    linkStyle 12 stroke:#E65100,stroke-width:2px
+    linkStyle 13 stroke:#00838F,stroke-width:2px
+    linkStyle 14 stroke:#00838F,stroke-width:2px
+    linkStyle 15 stroke:#616161,stroke-width:1px,stroke-dasharray:5 5
+    
+    %% Styling
+    classDef userClass fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    classDef apiClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef orchestrationClass fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef cacheClass fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef aiClass fill:#e0f2f1,stroke:#004d40,stroke-width:2px
+    classDef obsClass fill:#ffebee,stroke:#b71c1c,stroke-width:2px
+    classDef decisionClass fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    
+    class AppUsers userClass
+    class APIGateway apiClass
+    class CacheOrch orchestrationClass
+    class S3Vectors,VectorIndex cacheClass
+    class TitanEmbed,ClaudeLLM aiClass
+    class CloudWatch obsClass
+    class Decision decisionClass

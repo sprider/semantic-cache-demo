@@ -1,0 +1,384 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Semantic Cache Demo - Using Amazon S3 Vectors for serverless vector search
+  Fully serverless architecture with usage-based pricing
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: semantic-cache-demo
+    Description: Project name for resource naming
+  
+  SimilarityThreshold:
+    Type: String
+    Default: "0.85"
+    Description: Minimum similarity for cache hit (0.0-1.0)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.11
+    Environment:
+      Variables:
+        SIMILARITY_THRESHOLD: !Ref SimilarityThreshold
+  HttpApi:
+    CorsConfiguration:
+      AllowOrigins:
+        - "*"
+      AllowMethods:
+        - POST
+        - OPTIONS
+      AllowHeaders:
+        - Content-Type
+
+Resources:
+  # Custom resource to create S3 Vectors bucket and index
+  # S3 Vectors doesn't have native CloudFormation support yet
+  S3VectorsSetupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-s3vectors-setup
+      Runtime: python3.11
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 256
+      Role: !GetAtt S3VectorsSetupRole.Arn
+      InlineCode: |
+        import boto3
+        import cfnresponse
+        import logging
+        
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+        
+        def handler(event, context):
+            logger.info(f"Event: {event}")
+            
+            request_type = event['RequestType']
+            props = event['ResourceProperties']
+            bucket_name = props['BucketName']
+            index_name = props['IndexName']
+            dimension = int(props['Dimension'])
+            
+            s3vectors = boto3.client('s3vectors')
+            
+            try:
+                if request_type == 'Create':
+                    # Create vector bucket
+                    logger.info(f"Creating vector bucket: {bucket_name}")
+                    try:
+                        s3vectors.create_vector_bucket(vectorBucketName=bucket_name)
+                        logger.info(f"Created vector bucket: {bucket_name}")
+                    except s3vectors.exceptions.BucketAlreadyExists:
+                        logger.info(f"Vector bucket already exists: {bucket_name}")
+                    except Exception as e:
+                        if 'BucketAlreadyExists' in str(e) or 'already exists' in str(e).lower():
+                            logger.info(f"Vector bucket already exists: {bucket_name}")
+                        else:
+                            raise
+                    
+                    # Create vector index
+                    logger.info(f"Creating vector index: {index_name}")
+                    try:
+                        s3vectors.create_index(
+                            vectorBucketName=bucket_name,
+                            indexName=index_name,
+                            dataType='float32',
+                            dimension=dimension,
+                            distanceMetric='cosine'
+                        )
+                        logger.info(f"Created vector index: {index_name}")
+                    except Exception as e:
+                        if 'IndexAlreadyExists' in str(e) or 'already exists' in str(e).lower():
+                            logger.info(f"Vector index already exists: {index_name}")
+                        else:
+                            raise
+                    
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                        'BucketName': bucket_name,
+                        'IndexName': index_name
+                    })
+                    
+                elif request_type == 'Update':
+                    # No updates needed for now
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                        'BucketName': bucket_name,
+                        'IndexName': index_name
+                    })
+                    
+                elif request_type == 'Delete':
+                    # Delete vector index first, then bucket
+                    logger.info(f"Deleting vector index: {index_name}")
+                    try:
+                        s3vectors.delete_index(
+                            vectorBucketName=bucket_name,
+                            indexName=index_name
+                        )
+                        logger.info(f"Deleted vector index: {index_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete index: {e}")
+                    
+                    logger.info(f"Deleting vector bucket: {bucket_name}")
+                    try:
+                        s3vectors.delete_vector_bucket(vectorBucketName=bucket_name)
+                        logger.info(f"Deleted vector bucket: {bucket_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete bucket: {e}")
+                    
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                    
+            except Exception as e:
+                logger.error(f"Error: {e}")
+                cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  S3VectorsSetupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-s3vectors-setup-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3VectorsSetup
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3vectors:CreateVectorBucket
+                  - s3vectors:DeleteVectorBucket
+                  - s3vectors:CreateIndex
+                  - s3vectors:DeleteIndex
+                  - s3vectors:ListVectorBuckets
+                  - s3vectors:ListIndexes
+                Resource: '*'
+
+  # Custom resource to trigger S3 Vectors setup
+  SemanticCacheVectors:
+    Type: Custom::S3VectorsSetup
+    Properties:
+      ServiceToken: !GetAtt S3VectorsSetupFunction.Arn
+      BucketName: !Sub ${ProjectName}-vectors-${AWS::AccountId}
+      IndexName: semanticcache
+      Dimension: 1024
+
+  # Lambda Layer for Redis (kept for compatibility, not used with S3 Vectors)
+  RedisLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${ProjectName}-redis-layer
+      Description: Redis client library for Python (legacy)
+      ContentUri: ../layers/redis-layer/redis-layer.zip
+      CompatibleRuntimes:
+        - python3.11
+      CompatibleArchitectures:
+        - x86_64
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - 'arn:aws:bedrock:*::foundation-model/*'
+                  - 'arn:aws:bedrock:*:*:inference-profile/*'
+        - PolicyName: S3VectorsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3vectors:QueryVectors
+                  - s3vectors:PutVectors
+                  - s3vectors:GetVectors
+                  - s3vectors:DeleteVectors
+                Resource: '*'
+        - PolicyName: CloudWatchMetrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+  # Lambda Function (no VPC needed - simpler and faster!)
+  CacheOrchestratorFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: SemanticCacheVectors
+    Properties:
+      FunctionName: !Sub ${ProjectName}-handler
+      CodeUri: ../src/cache_orchestrator/
+      Handler: handler.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Layers:
+        - !Ref RedisLayer
+      Environment:
+        Variables:
+          VECTOR_BUCKET_NAME: !Sub ${ProjectName}-vectors-${AWS::AccountId}
+          VECTOR_INDEX_NAME: semanticcache
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /query
+            Method: post
+
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-handler
+      RetentionInDays: 1
+    DeletionPolicy: Delete
+
+  # CloudWatch Dashboard
+  SemanticCacheDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${ProjectName}-dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "SemanticCache", "CacheHit", { "stat": "Average" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Cache Hit Rate",
+                "period": 300,
+                "yAxis": {
+                  "left": {
+                    "min": 0,
+                    "max": 1
+                  }
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "SemanticCache", "CacheHitLatency", { "stat": "Average" } ],
+                  [ ".", "CacheMissLatency", { "stat": "Average" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Latency by Cache Status",
+                "period": 300,
+                "yAxis": {
+                  "left": {
+                    "min": 0
+                  }
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "SemanticCache", "Latency", { "stat": "Average" } ],
+                  [ ".", "Latency", { "stat": "p99" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Overall Latency (Avg & P99)",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${ProjectName}-handler" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ "SemanticCache", "Errors" ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Request Count & Errors",
+                "period": 300
+              }
+            }
+          ]
+        }
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub ${ProjectName}-api-endpoint
+
+  VectorBucketName:
+    Description: S3 Vectors bucket name
+    Value: !Sub ${ProjectName}-vectors-${AWS::AccountId}
+    Export:
+      Name: !Sub ${ProjectName}-vector-bucket
+
+  VectorIndexName:
+    Description: S3 Vectors index name
+    Value: semanticcache
+    Export:
+      Name: !Sub ${ProjectName}-vector-index
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-dashboard'
+
+  TestCommand:
+    Description: Command to test the API
+    Value: !Sub 'curl -X POST https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/query -H "Content-Type: application/json" -d "{\"query\": \"What is the capital of France?\"}"'
+
+  CostModel:
+    Description: Cost model
+    Value: "Fully serverless - pay only for usage. No fixed infrastructure costs."

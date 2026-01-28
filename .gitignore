@@ -132,11 +132,6 @@ dmypy.json
 .aws-sam/
 samconfig.toml.bak
 
-# Lambda layers
-layers/redis-layer/redis-layer.zip
-layers/redis-layer/build/
-layers/redis-layer/python/
-
 # IDE
 .vscode/
 .idea/
@@ -205,3 +200,6 @@ template-*.yaml
 infrastructure/template-simple.yaml
 infrastructure/template-minimal.yaml
 infrastructure/packaged.yaml
+
+# Personal content (not for repo)
+linkedin.md

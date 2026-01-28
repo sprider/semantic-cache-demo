@@ -170,18 +170,6 @@ Resources:
       IndexName: semanticcache
       Dimension: 1024
 
-  # Lambda Layer for Redis (kept for compatibility, not used with S3 Vectors)
-  RedisLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      LayerName: !Sub ${ProjectName}-redis-layer
-      Description: Redis client library for Python (legacy)
-      ContentUri: ../layers/redis-layer/redis-layer.zip
-      CompatibleRuntimes:
-        - python3.11
-      CompatibleArchitectures:
-        - x86_64
-
   # IAM Role for Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -237,8 +225,6 @@ Resources:
       CodeUri: ../src/cache_orchestrator/
       Handler: handler.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
-      Layers:
-        - !Ref RedisLayer
       Environment:
         Variables:
           VECTOR_BUCKET_NAME: !Sub ${ProjectName}-vectors-${AWS::AccountId}

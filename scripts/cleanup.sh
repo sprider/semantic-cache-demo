@@ -84,16 +84,6 @@ if [ -f "infrastructure/packaged.yaml" ]; then
     rm -f infrastructure/packaged.yaml
 fi
 
-if [ -f "layers/redis-layer/redis-layer.zip" ]; then
-    echo "  Removing Redis layer zip..."
-    rm -f layers/redis-layer/redis-layer.zip
-fi
-
-if [ -d "layers/redis-layer/python" ]; then
-    echo "  Removing Redis layer build directory..."
-    rm -rf layers/redis-layer/python
-fi
-
 echo ""
 echo "✅ Cleanup Complete!"
 echo ""

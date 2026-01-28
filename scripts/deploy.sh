@@ -41,19 +41,6 @@ if [ ! -f "infrastructure/template.yaml" ]; then
     exit 1
 fi
 
-# Build Redis layer (kept for compatibility)
-echo ""
-echo "📦 Building Lambda layer..."
-if [ -f "layers/redis-layer/build.sh" ]; then
-    chmod +x layers/redis-layer/build.sh
-    cd layers/redis-layer
-    ./build.sh
-    cd ../..
-    echo "✅ Lambda layer built successfully"
-else
-    echo "⚠️  Lambda layer build script not found, continuing..."
-fi
-
 # Build SAM application
 echo ""
 echo "🏗️  Building SAM application..."

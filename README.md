@@ -33,17 +33,20 @@ Deploy and test in 3 commands:
 ## 📋 Prerequisites
 
 ### Required Tools
+
 - **AWS CLI v2+**: `aws --version`
 - **SAM CLI v1+**: `sam --version`
 - **AWS Credentials**: `aws sts get-caller-identity`
 
 ### AWS Requirements
+
 - **Supported Regions**: us-east-1, us-east-2, us-west-2, eu-west-1, ap-northeast-1
 - **Bedrock Models**: Auto-enable on first use (no manual setup required)
   - Amazon Titan Embeddings V2 (`amazon.titan-embed-text-v2:0`)
   - Anthropic Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0` - inference profile)
 
 ### Optional Tools
+
 - **Python 3.12+**: For local testing
 - **jq**: For demo script output formatting
 
@@ -62,6 +65,7 @@ Deploy and test in 3 commands:
 **Estimated demo cost: < $1.00 for a few hours of testing**
 
 **💡 Benefits of this architecture:**
+
 - Fully serverless - no fixed infrastructure costs
 - Pay only for what you use
 - No minimum baseline charges
@@ -122,26 +126,31 @@ This demo uses a **serverless security model** without VPC:
 This demo showcases the core semantic caching pattern. For production use, consider:
 
 ### Authentication & Authorization
+
 - **API Gateway Authorizers**: Add Cognito, IAM, or Lambda authorizers
 - **API Keys**: For client identification and usage tracking
 - **AWS WAF**: Protect against common web exploits
 
 ### Scalability & Performance
+
 - **Lambda Provisioned Concurrency**: Eliminate cold starts for consistent latency
 - **Cache Warming**: Pre-populate cache with common queries
 - **Multi-Region**: Deploy to multiple regions for global low latency
 
 ### Observability & Operations
+
 - **X-Ray Tracing**: End-to-end request tracing
 - **CloudWatch Alarms**: Alert on error rates, latency spikes
 - **Custom Metrics**: Track cache hit rates, cost savings
 
 ### Data Management
+
 - **TTL Strategy**: Implement cache expiration based on data freshness needs
 - **Cache Invalidation**: API to clear stale entries when source data changes
 - **Backup Strategy**: Regular exports of cached data if persistence is critical
 
 ### Cost Optimization
+
 - **Reserved Capacity**: For Bedrock if usage is predictable
 - **Similarity Threshold Tuning**: Balance hit rate vs response accuracy
 - **Response Compression**: Reduce storage costs for large responses
@@ -149,6 +158,7 @@ This demo showcases the core semantic caching pattern. For production use, consi
 ## 🧪 Testing
 
 ### Run Unit Tests
+
 ```bash
 cd tests
 pip install -r requirements.txt
@@ -156,6 +166,7 @@ pytest unit/ -v
 ```
 
 ### Run Integration Tests
+
 ```bash
 # Set API endpoint from deployment
 export API_ENDPOINT="https://your-api-id.execute-api.us-east-1.amazonaws.com"
@@ -163,6 +174,7 @@ pytest integration/ -v
 ```
 
 ### Manual Testing
+
 ```bash
 # Test cache miss (first time)
 curl -X POST $API_ENDPOINT/query \
@@ -202,18 +214,22 @@ Environment variables (set in CloudFormation):
 ## 📊 Monitoring
 
 ### CloudWatch Dashboard
+
 Access via deployment output or:
+
 ```
 https://us-east-1.console.aws.amazon.com/cloudwatch/home#dashboards:name=semantic-cache-demo-dashboard
 ```
 
 ### Key Metrics
+
 - **Cache Hit Rate**: Percentage of requests served from cache
 - **Latency**: Response times for cache hits vs misses
 - **Request Count**: Total API requests
 - **Error Rate**: Failed requests by type
 
 ### Logs
+
 ```bash
 # View Lambda logs
 aws logs tail /aws/lambda/semantic-cache-demo-handler --follow
@@ -222,6 +238,7 @@ aws logs tail /aws/lambda/semantic-cache-demo-handler --follow
 ## 🛠️ Development
 
 ### Project Structure
+
 ```
 semantic-cache-demo/
 ├── infrastructure/
@@ -237,6 +254,7 @@ semantic-cache-demo/
 ```
 
 ### Local Development
+
 ```bash
 # Install dependencies
 pip install -r src/cache_orchestrator/requirements.txt
@@ -260,6 +278,7 @@ cd infrastructure && sam build && sam deploy
 | **Tests failing** | Install deps: `pip install -r tests/requirements.txt && pytest tests/ -v` |
 
 **Common Commands:**
+
 ```bash
 # View logs
 aws logs tail /aws/lambda/semantic-cache-demo-handler --follow
@@ -288,6 +307,7 @@ aws cloudformation describe-stacks --stack-name semantic-cache-demo
 ```
 
 The cleanup script removes:
+
 - CloudFormation stack (all resources)
 - S3 Vectors bucket and index
 - CloudWatch log groups
@@ -324,3 +344,5 @@ This project demonstrates **semantic caching using AWS-native services only**:
 **Use Cases**: Customer support bots, FAQ systems, documentation assistants, or any application with repetitive natural language queries.
 
 **⚠️ This is a demonstration project.** For production deployment, implement the recommendations in the "Production Recommendations" section above.
+
+**Design alternatives:** This demo uses S3 Vectors only for the cache layer. S3 Vectors has its own trade-offs (e.g. no built-in TTL, 40 KB metadata limit per vector). Combining S3 Vectors with DynamoDB—for example, storing vectors in S3 Vectors for similarity search and payloads or TTL in DynamoDB—lets you design differently for larger payloads, expiry, or exact-key lookups without changing the core flow shown here.
